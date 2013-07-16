@@ -1,6 +1,7 @@
 namespace NServiceBus.Unicast.Queuing.Azure
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
@@ -25,7 +26,7 @@ namespace NServiceBus.Unicast.Queuing.Azure
         CloudQueue azureQueue;
         int timeToDelayNextPeek;
         bool useTransactions;
-        Queue<CloudQueueMessage> batchQueue = new Queue<CloudQueueMessage>();
+        ConcurrentQueue<CloudQueueMessage> batchQueue = new ConcurrentQueue<CloudQueueMessage>();
 
         /// <summary>
         /// Sets the amount of time, in milliseconds, to add to the time to wait before checking for a new message
@@ -129,19 +130,21 @@ namespace NServiceBus.Unicast.Queuing.Azure
 
         CloudQueueMessage GetMessage()
         {
-            if (batchQueue.Count == 0)
+            CloudQueueMessage cloudQueueMessage;
+            if (batchQueue.TryDequeue(out cloudQueueMessage))
             {
-                var callback = new AsyncCallback(ar =>{
-                    var receivedMessages = azureQueue.EndGetMessages(ar);
-                    foreach (var receivedMessage in receivedMessages)
-                    {
-                        batchQueue.Enqueue(receivedMessage);
-                    }
-                });
-               azureQueue.BeginGetMessages(BatchSize, TimeSpan.FromMilliseconds(MessageInvisibleTime * BatchSize), null, null, callback, null);
+                return cloudQueueMessage;
             }
-
-            return batchQueue.Count != 0 ? batchQueue.Dequeue() : null;
+            var callback = new AsyncCallback(ar =>
+            {
+                var receivedMessages = azureQueue.EndGetMessages(ar);
+                foreach (var receivedMessage in receivedMessages)
+                {
+                    batchQueue.Enqueue(receivedMessage);
+                }
+            });
+            azureQueue.BeginGetMessages(BatchSize, TimeSpan.FromMilliseconds(MessageInvisibleTime * BatchSize), null, null, callback, null);
+            return null;
         }
 
         void DeleteMessage(CloudQueueMessage message)
