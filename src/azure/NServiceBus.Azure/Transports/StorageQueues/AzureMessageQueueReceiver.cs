@@ -22,10 +22,10 @@ namespace NServiceBus.Unicast.Queuing.Azure
         public const string DefaultConnectionString = "UseDevelopmentStorage=true";
         public const bool DefaultQueuePerInstance = false;
 
-        CloudQueue queue;
+        CloudQueue azureQueue;
         int timeToDelayNextPeek;
         bool useTransactions;
-        Queue<CloudQueueMessage> messages = new Queue<CloudQueueMessage>();
+        Queue<CloudQueueMessage> batchQueue = new Queue<CloudQueueMessage>();
 
         /// <summary>
         /// Sets the amount of time, in milliseconds, to add to the time to wait before checking for a new message
@@ -79,12 +79,12 @@ namespace NServiceBus.Unicast.Queuing.Azure
 
             var queueName = AzureMessageQueueUtils.GetQueueName(address);
 
-            queue = Client.GetQueueReference(queueName);
-            queue.CreateIfNotExists();
+            azureQueue = Client.GetQueueReference(queueName);
+            azureQueue.CreateIfNotExists();
 
             if (PurgeOnStartup)
             {
-                queue.Clear();
+                azureQueue.Clear();
             }
         }
 
@@ -122,33 +122,33 @@ namespace NServiceBus.Unicast.Queuing.Azure
                 }
                 else
                 {
-                    Transaction.Current.EnlistVolatile(new ReceiveResourceManager(queue, rawMessage), EnlistmentOptions.None);
+                    Transaction.Current.EnlistVolatile(new ReceiveResourceManager(azureQueue, rawMessage), EnlistmentOptions.None);
                 }                
             } 
         }
 
         CloudQueueMessage GetMessage()
         {
-            if (messages.Count == 0)
+            if (batchQueue.Count == 0)
             {
                 var callback = new AsyncCallback(ar =>{
-                    var receivedMessages = queue.EndGetMessages(ar);
+                    var receivedMessages = azureQueue.EndGetMessages(ar);
                     foreach (var receivedMessage in receivedMessages)
                     {
-                        messages.Enqueue(receivedMessage);
+                        batchQueue.Enqueue(receivedMessage);
                     }
                 });
-               queue.BeginGetMessages(BatchSize, TimeSpan.FromMilliseconds(MessageInvisibleTime * BatchSize), null, null, callback, null);
+               azureQueue.BeginGetMessages(BatchSize, TimeSpan.FromMilliseconds(MessageInvisibleTime * BatchSize), null, null, callback, null);
             }
 
-            return messages.Count != 0 ? messages.Dequeue() : null;
+            return batchQueue.Count != 0 ? batchQueue.Dequeue() : null;
         }
 
         void DeleteMessage(CloudQueueMessage message)
         {
             try
             {
-                queue.DeleteMessage(message);
+                azureQueue.DeleteMessage(message);
             }
             catch (StorageException ex)
             {
