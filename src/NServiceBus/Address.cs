@@ -22,8 +22,7 @@ namespace NServiceBus
         /// </summary>
         public static readonly Address Self = new Address("__self", "localhost");
 
-        
-
+       
         /// <summary>
         /// Get the address of this endpoint.
         /// </summary>
